@@ -43,7 +43,7 @@ from instaloader.exceptions import (
 # Automatically adapts depending on the operating system.
 
 BASE_FOLDER = (
-    Path("F:/Downloads/Instagram")
+    Path("F:/Instagram")
     if os.name == "nt"
     else Path("/home/felipe/Downloads/Instagram")
 )
@@ -177,7 +177,7 @@ def download_profile_data(target_username, cutoff_days=None):
     print(f"{'=' * 40}")
 
     log = open_profile_log(target_username)
-    start_time = datetime.datetime.now()
+    start_time = datetime.datetime.now(datetime.timezone.utc)
 
     # Execution header
     log.write("\n" + "=" * 40 + "\n")
@@ -326,6 +326,7 @@ def download_profile_data(target_username, cutoff_days=None):
 if __name__ == "__main__":
     try:
         smart_login()
+        L.context.user_agent = "Instagram 219.0.0.12.117 Android"
 
         profiles = load_profiles_from_file("profiles.txt")
 
