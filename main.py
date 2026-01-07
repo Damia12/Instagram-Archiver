@@ -35,7 +35,13 @@ from instaloader.exceptions import (
     QueryReturnedNotFoundException,
     LoginRequiredException,
 )
-# --PRUEBA
+
+# ============================================================
+# RATE LIMIT GLOBAL FLAG (FASE 2)
+# ============================================================
+
+RATE_LIMIT_DETECTED = False
+
 # ============================================================
 # BASE DIRECTORY
 # ============================================================
@@ -123,6 +129,30 @@ def open_profile_log(username):
 
 
 # ============================================================
+# RATE LIMIT DETECTOR
+# ============================================================
+
+
+def is_rate_limit_error(error: Exception) -> bool:
+    """
+    Detects Instagram rate-limit / temporary block errors
+    by inspecting the error message.
+    """
+    error_text = str(error).lower()
+
+    indicators = [
+        "please wait a few minutes",
+        "rate limit",
+        "temporarily blocked",
+        "server error",
+        "401 unauthorized",
+        "too many requests",
+    ]
+
+    return any(indicator in error_text for indicator in indicators)
+
+
+# ============================================================
 # FASE 1
 # ============================================================
 
@@ -197,6 +227,7 @@ def smart_login():
 
 
 def download_profile_data(target_username, cutoff_days=None):
+    global RATE_LIMIT_DETECTED
     print(f"\n{'=' * 40}")
     print(f"📥 PROCESSING: {target_username}")
     print(f"{'=' * 40}")
@@ -243,10 +274,21 @@ def download_profile_data(target_username, cutoff_days=None):
         print("Login required or session expired.")
         sys.exit(1)
 
+    # except Exception as e:
+    #     log.write(f"STATUS:\n  FAILED TO LOAD PROFILE: {e}\n")
+    #     log.close()
+    #     print(f"Unexpected error loading {target_username}: {e}")
+    #     return
     except Exception as e:
+        if is_rate_limit_error(e):
+            log.write("\nRATE LIMIT DETECTED WHILE LOADING PROFILE:\n")
+            log.write(f"  {e}\n")
+            log.write("  ACTION: SCRIPT STOPPED\n")
+            log.close()
+            sys.exit(0)
+
         log.write(f"STATUS:\n  FAILED TO LOAD PROFILE: {e}\n")
         log.close()
-        print(f"Unexpected error loading {target_username}: {e}")
         return
 
     # --------------------------------------------------------
@@ -264,12 +306,22 @@ def download_profile_data(target_username, cutoff_days=None):
     # --------------------------------------------------------
     log.write("STORIES:\n")
     original_pattern = L.dirname_pattern
+
     try:
         L.dirname_pattern = str(BASE_FOLDER / target_username / "stories")
         L.download_stories(userids=[profile.userid])
-        log.write("  ✔ Downloaded\n\n")
+        log.write("  Downloaded\n\n")
+
     except Exception as e:
-        log.write(f"  ✖ Error: {e}\n\n")
+        if is_rate_limit_error(e):
+            log.write("\nRATE LIMIT DETECTED DURING STORIES:\n")
+            log.write(f"  {e}\n")
+            log.write("  ACTION: SCRIPT STOPPED\n")
+            log.close()
+            sys.exit(0)
+
+        log.write(f"  Error: {e}\n\n")
+
     finally:
         L.dirname_pattern = original_pattern
 
@@ -336,8 +388,23 @@ def download_profile_data(target_username, cutoff_days=None):
 
             except ConnectionException:
                 time.sleep(15)
+            # except Exception as e:
+            #     log.write(f"  ⚠️ Post error: {e}\n")
+
             except Exception as e:
-                log.write(f"  ⚠️ Post error: {e}\n")
+                if is_rate_limit_error(e):
+                    RATE_LIMIT_DETECTED = True
+
+                    log.write("\nRATE LIMIT DETECTED:\n")
+                    log.write(f"  {e}\n")
+                    log.write("  ACTION: SCRIPT STOPPED TO PREVENT BAN\n")
+                    log.write("=" * 40 + "\n")
+
+                    print("\nRATE LIMIT DETECTED — STOPPING SCRIPT")
+                    log.close()
+                    sys.exit(0)
+
+                log.write(f"  Post error: {e}\n")
 
     except Exception as e:
         log.write(f"  ✖ Error iterating posts: {e}\n")
@@ -430,7 +497,13 @@ if __name__ == "__main__":
         mode = input("Select mode (1 or 2): ").strip()
 
         if mode == "2" or mode.lower() == "all":
+            # for i, user in enumerate(profiles):
+            #     download_profile_data(user, cutoff_days=730)
             for i, user in enumerate(profiles):
+                if RATE_LIMIT_DETECTED:
+                    print("\nRate limit previously detected. Exiting.")
+                    break
+
                 download_profile_data(user, cutoff_days=730)
 
                 if i < len(profiles) - 1:
