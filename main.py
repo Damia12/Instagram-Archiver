@@ -123,6 +123,31 @@ def open_profile_log(username):
 
 
 # ============================================================
+# FASE 1
+# ============================================================
+
+
+def post_already_downloaded(base_folder, username, post):
+    """
+    Checks if a post was already downloaded by inspecting the filesystem.
+    Works for photos, videos and carousels.
+    """
+    post_dir = base_folder / username / "posts"
+
+    if not post_dir.exists():
+        return False
+
+    shortcode = post.shortcode
+
+    # Any file containing the shortcode means it was downloaded
+    for file in post_dir.iterdir():
+        if shortcode in file.name:
+            return True
+
+    return False
+
+
+# ============================================================
 # SMART LOGIN
 # ============================================================
 # - Loads an existing session if available
@@ -266,10 +291,13 @@ def download_profile_data(target_username, cutoff_days=None):
             days=cutoff_days
         )
 
-    total = downloaded = skipped = videos = photos = 0
+    total = downloaded = skipped = skipped_existing = videos = photos = 0
 
     try:
         posts = profile.get_posts()
+        # for i, post in enumerate(posts, 1):
+        #     total += 1
+        skipped_existing = 0
         for i, post in enumerate(posts, 1):
             total += 1
 
@@ -277,6 +305,16 @@ def download_profile_data(target_username, cutoff_days=None):
             if cutoff_date and post.date_utc < cutoff_date:
                 skipped += 1
                 break
+
+            # Phase 1: Skip already downloaded posts
+            if post_already_downloaded(BASE_FOLDER, target_username, post):
+                skipped_existing += 1
+                continue
+
+            # # Stop when reaching cutoff date
+            # if cutoff_date and post.date_utc < cutoff_date:
+            #     skipped += 1
+            #     break
 
             try:
                 L.download_post(post, target=target_username)
@@ -307,6 +345,7 @@ def download_profile_data(target_username, cutoff_days=None):
     # Posts summary
     log.write(f"\n  Total scanned: {total}\n")
     log.write(f"  Downloaded: {downloaded}\n")
+    log.write(f"  Skipped (already downloaded): {skipped_existing}\n")
     log.write(f"  Skipped (cutoff): {skipped}\n")
     log.write(f"  Videos: {videos}\n")
     log.write(f"  Photos/Carousels: {photos}\n\n")
